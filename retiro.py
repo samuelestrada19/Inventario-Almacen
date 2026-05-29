@@ -8,6 +8,8 @@ def crear_frame_retiro(frame):
 
     cursor = conexion.cursor()
 
+    pedido = []
+
     # =====================================
     # TITULO
     # =====================================
@@ -16,11 +18,34 @@ def crear_frame_retiro(frame):
         frame,
         text="RETIRO DE MEDICAMENTOS",
         font=("Arial", 20, "bold")
-    ).pack(pady=20)
+    ).pack(pady=10)
 
     # =====================================
-    # TABLA
+    # FRAME SUPERIOR
     # =====================================
+
+    frame_superior = tk.Frame(frame)
+
+    frame_superior.pack(fill="both", expand=True)
+
+    # =====================================
+    # INVENTARIO
+    # =====================================
+
+    frame_inventario = tk.Frame(frame_superior)
+
+    frame_inventario.pack(
+        side="left",
+        fill="both",
+        expand=True,
+        padx=10
+    )
+
+    tk.Label(
+        frame_inventario,
+        text="INVENTARIO",
+        font=("Arial", 16, "bold")
+    ).pack(pady=10)
 
     columnas = (
         "Nombre",
@@ -29,7 +54,7 @@ def crear_frame_retiro(frame):
     )
 
     tabla = ttk.Treeview(
-        frame,
+        frame_inventario,
         columns=columnas,
         show="headings",
         height=15
@@ -39,17 +64,43 @@ def crear_frame_retiro(frame):
 
         tabla.heading(col, text=col)
 
-        tabla.column(
-            col,
-            width=200
-        )
+        tabla.column(col, width=150)
 
-    tabla.pack(
+    tabla.pack(fill="both", expand=True)
+
+    # =====================================
+    # PEDIDO
+    # =====================================
+
+    frame_pedido = tk.Frame(frame_superior)
+
+    frame_pedido.pack(
+        side="right",
         fill="both",
         expand=True,
-        padx=20,
-        pady=20
+        padx=10
     )
+
+    tk.Label(
+        frame_pedido,
+        text="PEDIDO",
+        font=("Arial", 16, "bold")
+    ).pack(pady=10)
+
+    tabla_pedido = ttk.Treeview(
+        frame_pedido,
+        columns=("Nombre", "Cantidad"),
+        show="headings",
+        height=15
+    )
+
+    tabla_pedido.heading("Nombre", text="Nombre")
+    tabla_pedido.heading("Cantidad", text="Cantidad")
+
+    tabla_pedido.column("Nombre", width=180)
+    tabla_pedido.column("Cantidad", width=100)
+
+    tabla_pedido.pack(fill="both", expand=True)
 
     # =====================================
     # CARGAR DATOS
@@ -57,67 +108,45 @@ def crear_frame_retiro(frame):
 
     def cargar_datos():
 
-        # Limpiar tabla
         for fila in tabla.get_children():
             tabla.delete(fila)
 
-        # Leer DB
         cursor.execute(
             "SELECT * FROM productos"
         )
 
         productos = cursor.fetchall()
 
-        # Insertar datos
         for producto in productos:
 
             tabla.insert(
                 "",
                 "end",
                 values=(
-                    producto[1],  # nombre
-                    producto[2],  # dosis
-                    producto[6]   # stock
+                    producto[1],
+                    producto[2],
+                    producto[6]
                 )
             )
 
     cargar_datos()
 
     # =====================================
-    # BOTON RECARGAR
+    # CONTROLES
     # =====================================
 
-    tk.Button(
-        frame,
-        text="RECARGAR INVENTARIO",
-        bg="blue",
-        fg="white",
-        font=("Arial", 12, "bold"),
-        command=cargar_datos
-    ).pack(pady=10)
+    frame_controles = tk.Frame(frame)
 
-    # =====================================
-    # FRAME RETIRO
-    # =====================================
-
-    frame_retirar = tk.Frame(frame)
-
-    frame_retirar.pack(pady=10)
-
-    # =====================================
-    # CANTIDAD
-    # =====================================
+    frame_controles.pack(pady=20)
 
     tk.Label(
-        frame_retirar,
-        text="Cantidad:",
-        font=("Arial", 12)
+        frame_controles,
+        text="Cantidad:"
     ).pack(side="left")
 
     entrada_cantidad = tk.Entry(
-        frame_retirar,
-        width=10,
-        font=("Arial", 12)
+        frame_controles,
+        width=10
     )
 
     entrada_cantidad.pack(
@@ -126,10 +155,10 @@ def crear_frame_retiro(frame):
     )
 
     # =====================================
-    # RETIRAR PRODUCTO
+    # AGREGAR AL PEDIDO
     # =====================================
 
-    def retirar_producto():
+    def agregar_pedido():
 
         seleccionado = tabla.selection()
 
@@ -143,63 +172,105 @@ def crear_frame_retiro(frame):
 
         cantidad = int(cantidad)
 
-        # Datos seleccionados
         datos = tabla.item(
             seleccionado[0]
         )["values"]
 
-        nombre_producto = datos[0]
+        nombre = datos[0]
 
-        stock_actual = datos[2]
-
-        # Buscar ID usando nombre
-        cursor.execute(
-            "SELECT id FROM productos WHERE nombre=?",
-            (nombre_producto,)
+        pedido.append(
+            (nombre, cantidad)
         )
 
-        resultado = cursor.fetchone()
-
-        if resultado is None:
-            return
-
-        id_producto = resultado[0]
-
-        # Nuevo stock
-        nuevo_stock = stock_actual - cantidad
-
-        if nuevo_stock < 0:
-            nuevo_stock = 0
-
-        # Actualizar DB
-        cursor.execute(
-            """
-            UPDATE productos
-            SET stock=?
-            WHERE id=?
-            """,
-            (nuevo_stock, id_producto)
+        tabla_pedido.insert(
+            "",
+            "end",
+            values=(
+                nombre,
+                cantidad
+            )
         )
 
-        conexion.commit()
-
-        # Recargar tabla
-        cargar_datos()
-
-        # Limpiar entrada
         entrada_cantidad.delete(0, tk.END)
 
     # =====================================
-    # BOTON RETIRAR
+    # CONFIRMAR RETIRO
+    # =====================================
+
+    def confirmar_retiro():
+
+        for nombre, cantidad in pedido:
+
+            cursor.execute(
+                """
+                SELECT id, stock
+                FROM productos
+                WHERE nombre=?
+                """,
+                (nombre,)
+            )
+
+            resultado = cursor.fetchone()
+
+            if resultado:
+
+                id_producto = resultado[0]
+
+                stock_actual = resultado[1]
+
+                nuevo_stock = stock_actual - cantidad
+
+                if nuevo_stock < 0:
+                    nuevo_stock = 0
+
+                cursor.execute(
+                    """
+                    UPDATE productos
+                    SET stock=?
+                    WHERE id=?
+                    """,
+                    (
+                        nuevo_stock,
+                        id_producto
+                    )
+                )
+
+        conexion.commit()
+
+        pedido.clear()
+
+        for fila in tabla_pedido.get_children():
+            tabla_pedido.delete(fila)
+
+        cargar_datos()
+
+    # =====================================
+    # BOTONES
     # =====================================
 
     tk.Button(
-        frame_retirar,
-        text="RETIRAR",
+        frame_controles,
+        text="AGREGAR AL PEDIDO",
+        bg="orange",
+        fg="white",
+        font=("Arial", 12, "bold"),
+        command=agregar_pedido
+    ).pack(side="left", padx=10)
+
+    tk.Button(
+        frame_controles,
+        text="CONFIRMAR RETIRO",
         bg="red",
         fg="white",
         font=("Arial", 12, "bold"),
-        padx=20,
-        pady=5,
-        command=retirar_producto
-    ).pack(side="left")
+        command=confirmar_retiro
+    ).pack(side="left", padx=10)
+
+    tk.Button(
+        frame_controles,
+        text="RECARGAR INVENTARIO",
+        bg="blue",
+        fg="white",
+        font=("Arial", 12, "bold"),
+        command=cargar_datos
+    ).pack(side="left", padx=10)
